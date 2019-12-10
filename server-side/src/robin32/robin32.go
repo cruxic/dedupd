@@ -10,6 +10,11 @@ the value data.  Pointers from this pool are 32bits instead of 64.
 */
 package robin32
 
+//Good guides to Robin Hood hashing:
+//  https://www.sebastiansylvan.com/post/robin-hood-hashing-should-be-your-default-hash-table-implementation/
+//
+//  http://codecapsule.com/2013/11/17/robin-hood-hashing-backward-shift-deletion/
+
 import (
 	"fixedpool"
 	"math"
@@ -43,6 +48,7 @@ const (
 func (pr PutResult) OK() bool {
 	return pr > 0
 }
+
 
 /*
 Each bucket is 8 bytes.
@@ -160,10 +166,14 @@ func (m *Map) isKeyEqual2(a _Bucket, bKeyPrefix uint32, bKeySuffix []byte) bool 
 
 
 //Copy the bucket value from src to dest
-func (m *Map) copyValue(src, dest *_Bucket) {
+func (m *Map) copyValue(src, dest _Bucket) {
 	srcMore := m.pool.Get(src.More)
 	destMore := m.pool.Get(dest.More)
 	copy(destMore[keySuffixLen:], srcMore[keySuffixLen:])
+}
+
+func (m *Map) getValueRef(bucket _Bucket) []byte {
+	return m.pool.Get(bucket.More)[keySuffixLen:]
 }
 
 func (m *Map) Put(key []byte, value []byte) PutResult {
@@ -198,7 +208,7 @@ func (m *Map) Put(key []byte, value []byte) PutResult {
 			return PRKeyWasNew
 		} else if m.isKeyEqual(incoming, other) {
 			//Update existing
-			m.copyValue(&incoming, &m.buckets[idx])
+			m.copyValue(incoming, m.buckets[idx])
 			m.freeBucket(&incoming)
 			return PRValueUpdated
 		}
@@ -212,7 +222,6 @@ func (m *Map) Put(key []byte, value []byte) PutResult {
 		}
 
 		dist++
-
 		idx++
 
 		//wrap around
@@ -227,10 +236,12 @@ func (m *Map) Put(key []byte, value []byte) PutResult {
 	}
 }
 
-func (m *Map) Get(key []byte) (value []byte, found bool) {
+func (m *Map) Get(key []byte, resultValue []byte) bool {
 	//sanity
 	if len(key) != KeySize {
-		return
+		return false
+	} else if len(resultValue) != m.valueSize {
+		panic("resultValue wrong size")
 	}
 
 	keyPrefix := keyPrefixAsUint32(key)
@@ -244,18 +255,17 @@ func (m *Map) Get(key []byte) (value []byte, found bool) {
 
 		if other.isEmpty() {
 			//not found
-			break
+			return false
 		} else if m.isKeyEqual2(other, keyPrefix, keySuffix) {
 			//Found!
-			found = true
-			value = m.pool.Get(other.More)[keySuffixLen:]
-			break
+			copy(resultValue, m.getValueRef(other))
+			return true
 		}
 
 		otherDist := m.probeDist(other, idx)
 		if otherDist < dist {
 			//not found
-			break
+			return false
 		}
 
 		dist++
@@ -263,12 +273,10 @@ func (m *Map) Get(key []byte) (value []byte, found bool) {
 		if idx >= len(m.buckets) {
 			if wrapped {
 				//not found
-				break
+				return false
 			}
 			idx = 0
 			wrapped = true
 		}
 	}
-
-	return
 }
