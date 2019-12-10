@@ -23,7 +23,6 @@ type Map struct {
 	nUsed int
 	//90% of len(buckets)
 	maxAllowed int
-	maxProbeDist int
 }
 
 func NewMap(maxCapacity int) *Map {
@@ -117,10 +116,6 @@ func (m *Map) CalcStats() Stats {
 		panic("nUsed mismatch")
 	}
 
-	if stats.MaxProbeDist != m.maxProbeDist {
-		panic("MaxProbeDist mismatch")
-	}
-
 	stats.AvgProbeDist = float32(float64(sum) / float64(stats.NumUsed))
 
 	stats.MaxAllowed = m.maxAllowed
@@ -195,9 +190,9 @@ func (m *Map) Put(key uint32, value int) bool {
 		}
 
 		dist++
-		if dist > m.maxProbeDist {
-			m.maxProbeDist = dist
-		}
+		//if dist > m.maxProbeDist {
+		//	m.maxProbeDist = dist
+		//}
 
 		idx++
 		if idx >= len(m.buckets) {
@@ -215,8 +210,9 @@ func (m *Map) Put(key uint32, value int) bool {
 func (m *Map) Get(key uint32) (value int, found bool) {
 	idx := m.index(key)
 	dist := 0
+	wrapped := false
 
-	for dist <= m.maxProbeDist {
+	for {
 		other := m.buckets[idx]
 
 		if !other.used {
@@ -238,7 +234,12 @@ func (m *Map) Get(key uint32) (value int, found bool) {
 		dist++
 		idx++
 		if idx >= len(m.buckets) {
+			if wrapped {
+				//not found
+				break
+			}
 			idx = 0
+			wrapped = true
 		}
 	}
 
